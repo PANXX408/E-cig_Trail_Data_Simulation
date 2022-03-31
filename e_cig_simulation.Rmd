@@ -1,0 +1,80 @@
+---
+title: "E_cig_Simulation"
+author: "Mingming Pan"
+date: "3/24/2022"
+output: html_document
+---
+
+#nicotine:moderate/low
+#flavor:flavor/tabacco
+```{r}
+set.seed(1234)
+#Nicotine:0,1 and flavor:0,1
+#1: N0 F0; 2:N1 F0; 3: N0 F1; 4: N1 F1
+#Suppose 100 participants,4 time periods. 
+id <- rep(1:100, each = 4)
+time <- as.factor(rep(1:4, 100))
+#random errors
+e_i <- rnorm(n = 400, mean = 0, sd = 0.8)
+#random intercepts
+b_i <- rep(rnorm(n = 100, mean = 0, sd = 1), each = 4)
+#Generate permutation
+permu <- c(replicate(100, sample(4)))
+#Generate data for Nicotine anf Flavor
+Flavor <- ifelse(permu <3, 0, 1)
+Nicotine <- ifelse(permu == 1 | permu ==3, 0, 1)
+
+```
+
+```{r, message=FALSE}
+#Predicting Dependent Variable (DV) From Multilevel Model
+dv <- function(b0,b1,b2,b3){
+  smoke = b0 + b1*Nicotine + b2*Flavor + b3*Nicotine*Flavor + b_i + e_i
+  return(smoke)
+}
+smoke_1 <- dv(0.35,0.41,0.55,0.6)
+#Create date frame
+Data1 <- data.frame(id, time, e_i, b_i, Flavor, Nicotine, smoke_1)
+```
+
+```{r}
+#Test the model
+#Betas: 0.35,0.41,0.55,0.6
+library(lme4)
+model1 = lmer(smoke_1 ~ (1|id) + Nicotine * Flavor, data = Data1)
+summary(model1)
+```
+#Except coefficient for interaction term, the estimated coefficients are close to true values. 
+
+```{r}
+#Trying different betas
+smoke_2 <- dv(1.2,0.3,0.5,0.4)
+#Create date frame
+Data2 <- data.frame(id, time, e_i, b_i, Flavor, Nicotine, smoke_2)
+#Betas: 1.2,0.3,0.5,0.4
+model2 = lmer(smoke_2 ~ (1|id) + Nicotine * Flavor, data = Data2)
+summary(model2)
+```
+
+
+```{r}
+#Trying different betas
+smoke_3 <- dv(3.5, 1.5, 1.1, 0.5)
+#Create date frame
+Data3 <- data.frame(id, time, e_i, b_i, Flavor, Nicotine, smoke_3)
+#Betas: 3.5, 1.5, 1.1, 0.5
+model3 = lmer(smoke_3 ~ (1|id) + Nicotine * Flavor, data = Data3)
+summary(model3)
+```
+#The bata3 for the interaction term is always about 0.7 lower than the true beta value. 
+```{r}
+#Trying different betas
+smoke_4 <- dv(3.5, 1.5, 1.1, 1.3)
+#Create date frame
+Data4 <- data.frame(id, time, e_i, b_i, Flavor, Nicotine, smoke_4)
+#Betas: 3.5, 1.5, 1.1, 1.3
+model4 = lmer(smoke_4 ~ (1|id) + Nicotine * Flavor, data = Data4)
+summary(model4)
+```
+
+
