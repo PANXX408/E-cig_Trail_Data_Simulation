@@ -5,6 +5,11 @@ date: "3/24/2022"
 output: html_document
 ---
 
+```{r setup, include=FALSE}
+library(lme4)
+library(boot)
+library(dplyr)
+```
 #nicotine:moderate/low
 #flavor:flavor/tabacco
 ```{r}
@@ -22,7 +27,7 @@ b_i <- rep(rnorm(n = 100, mean = 0, sd = 1), each = 4)
 permu <- c(replicate(100, sample(4)))
 #Generate data for Nicotine anf Flavor
 Flavor <- ifelse(permu <3, 0, 1)
-Nicotine <- ifelse(permu == 1 | permu ==3, 0, 1)
+Nicotine <- ifelse(permu == 1 | permu == 3, 0, 1)
 
 ```
 
@@ -44,37 +49,145 @@ library(lme4)
 model1 = lmer(smoke_1 ~ (1|id) + Nicotine * Flavor, data = Data1)
 summary(model1)
 ```
-#Except coefficient for interaction term, the estimated coefficients are close to true values. 
+
+######Write new functions for simulate data and missing####################################
 
 ```{r}
-#Trying different betas
-smoke_2 <- dv(1.2,0.3,0.5,0.4)
-#Create date frame
-Data2 <- data.frame(id, time, e_i, b_i, Flavor, Nicotine, smoke_2)
-#Betas: 1.2,0.3,0.5,0.4
-model2 = lmer(smoke_2 ~ (1|id) + Nicotine * Flavor, data = Data2)
-summary(model2)
+simulation_miss <- function(seed, N, e_sd, b_sd, b0, b1, b2, b3, missing){
+  set.seed(seed)
+  id <- rep(1:N, each = 4)
+  time <- as.factor(rep(1:4, N))
+  #random errors
+  e_i <- rnorm(n = N, mean = 0, sd = e_sd)
+  #random intercepts
+  b_i <- rep(rnorm(n = N, mean = 0, sd = b_sd), each = 4)
+  permu <- c(replicate(N, sample(4)))
+  #Generate data for Nicotine and Flavor
+  Flavor <- ifelse(permu <3, 0, 1)
+  Nicotine <- ifelse(permu == 1 | permu ==3, 0, 1)
+  smoke = b0 + b1*Nicotine + b2*Flavor + b3*Nicotine*Flavor + b_i + e_i
+  
+  #Complete model data set without missing, model_full
+  if(missing == 0){
+    data_full <- data.frame(id, time, Flavor, Nicotine, e_i, b_i, smoke)
+    model_full <- lmer(smoke ~ (1|id) + Nicotine * Flavor, data = data_full)
+    return(summary(model_full)$coefficients[,1])
+  }
+  
+  #Adding missing 
+  #Drop out indicators d1, d2, d3. If d1 = 1, then drop after 1st visit. 
+    prob1 <- inv.logit(logit(.1))
+    prob2 <- inv.logit(logit(1/9))
+    prob3 <- inv.logit(logit(1/8))
+    d1 <- rbinom(size = 1, n = N, prob = prob1)
+    d2 <- ifelse(d1 == 0, rbinom(size = 1, n = length(which(d1 == 0)), prob = prob2), NA)
+    d3 <- ifelse(d2 == 0, rbinom(size = 1, n = length(which(d2 == 0)), prob = prob3), NA)
+    d1 <- rep(d1, each = 4)
+    d2 <- rep(d2, each = 4)
+    d3 <- rep(d3, each = 4)
+  
+  simu_data <- data.frame(id, time, Flavor, Nicotine, e_i, b_i, smoke, d1, d2 ,d3)
+  
+  #Include missing 
+  simu_data$Flavor[simu_data$d1 == 1 & simu_data$time %in% c(2,3,4)] = NA
+  simu_data$Flavor[simu_data$d2 == 1 & simu_data$time %in% c(3,4)] = NA
+  simu_data$Flavor[simu_data$d3 == 1 & simu_data$time %in% 4] = NA
+  
+  simu_data$Nicotine[simu_data$d1 == 1 & simu_data$time %in% c(2,3,4)] = NA
+  simu_data$Nicotine[simu_data$d2 == 1 & simu_data$time %in% c(3,4)] = NA
+  simu_data$Nicotine[simu_data$d3 == 1 & simu_data$time %in% 4] = NA
+  
+  simu_data$smoke[simu_data$d1 == 1 & simu_data$time %in% c(2,3,4)] = NA
+  simu_data$smoke[simu_data$d2 == 1 & simu_data$time %in% c(3,4)] = NA
+  simu_data$smoke[simu_data$d3 == 1 & simu_data$time %in% 4] = NA
+  
+  simu_data$e_i[simu_data$d1 == 1 & simu_data$time %in% c(2,3,4)] = NA
+  simu_data$e_i[simu_data$d2 == 1 & simu_data$time %in% c(3,4)] = NA
+  simu_data$e_i[simu_data$d3 == 1 & simu_data$time %in% 4] = NA
+  
+  simu_data$b_i[simu_data$d1 == 1 & simu_data$time %in% c(2,3,4)] = NA
+  simu_data$b_i[simu_data$d2 == 1 & simu_data$time %in% c(3,4)] = NA
+  simu_data$b_i[simu_data$d3 == 1 & simu_data$time %in% 4] = NA
+  
+  #Complete model dataset with missing, model_1
+  if(missing == 1){
+  #return(model summary)
+  model_1 = lmer(smoke ~ (1|id) + Nicotine * Flavor, data = simu_data)
+  return(summary(model_1)$coefficients[,1])
+  }
+  
+  
+  #Partial dataset with 3 visits and missing, model_2
+  if(missing == 2){
+    simu_data2 <- simu_data[simu_data$time %in% c(1, 2, 3), ]
+    #return(model summary)
+    model_2 = lmer(smoke ~ (1|id) + Nicotine * Flavor, data = simu_data2)
+    return(summary(model_2)$coefficients[,1])
+    }
+  
+  
+  #Partial dataset with 2 visits and missing, model_3
+  if(missing == 3){
+    simu_data3 <- simu_data[simu_data$time %in% c(1, 2), ]
+    #return(model summary)
+    model_3 = lmer(smoke ~ (1|id) + Nicotine * Flavor, data = simu_data3)
+    return(summary(model_3)$coefficients[,1])
+  }
+  
+  
+}
+```
+
+#Simulation results for MCAR
+```{r}
+#Without missing, full data 
+results_full <- sapply(1:200, function(x) simulation_miss(x, 100, 0.8, 1, 0.35, 0.41, 0.55, 0.6, 0))
+#with missing, full data
+results_1 <- sapply(1:200, function(x) simulation_miss(x, 100, 0.8, 1, 0.35, 0.41, 0.55, 0.6, 1))
+#with missing, 3 visits
+results_2 <- sapply(1:200, function(x) simulation_miss(x, 100, 0.8, 1, 0.35, 0.41, 0.55, 0.6, 2))
+#with missing, 2 visits
+results_3 <- sapply(1:200, function(x) simulation_miss(x, 100, 0.8, 1, 0.35, 0.41, 0.55, 0.6, 3))
+```
+
+#View simulation results of MCAR models in table
+```{r}
+MCAR_results <- matrix(NA, nrow=4, ncol=8)
+colnames(MCAR_results) <- c("Estimate","VAR", "Estimate", "VAR", "Estimate", "VAR",
+                               "Estimate", "VAR")
+rownames(MCAR_results) <- c("Intercept","Nicotine","Flavor","Nicotine:Flavor")
+MCAR_results[, 1] = rowMeans(results_full)
+MCAR_results[1, 2] = (sd(results_full[1,]))^2
+MCAR_results[2, 2] = (sd(results_full[2,]))^2
+MCAR_results[3, 2] = (sd(results_full[3,]))^2
+MCAR_results[4, 2] = (sd(results_full[4,]))^2
+MCAR_results[, 3] = rowMeans(results_1)
+MCAR_results[1, 4] = (sd(results_1[1,]))^2
+MCAR_results[2, 4] = (sd(results_1[2,]))^2
+MCAR_results[3, 4] = (sd(results_1[3,]))^2
+MCAR_results[4, 4] = (sd(results_1[4,]))^2
+MCAR_results[, 5] = rowMeans(results_2)
+MCAR_results[1, 6] = (sd(results_2[1,]))^2
+MCAR_results[2, 6] = (sd(results_2[2,]))^2
+MCAR_results[3, 6] = (sd(results_2[3,]))^2
+MCAR_results[4, 6] = (sd(results_2[4,]))^2
+MCAR_results[, 7] = rowMeans(results_3)
+MCAR_results[1, 8] = (sd(results_3[1,]))^2
+MCAR_results[2, 8] = (sd(results_3[2,]))^2
+MCAR_results[3, 8] = (sd(results_3[3,]))^2
+MCAR_results[4, 8] = (sd(results_3[4,]))^2
+models_MCAR <- as.data.frame(MCAR_results)
+knitr::kable(models_MCAR,caption = "MCAR Models Results")
 ```
 
 
-```{r}
-#Trying different betas
-smoke_3 <- dv(3.5, 1.5, 1.1, 0.5)
-#Create date frame
-Data3 <- data.frame(id, time, e_i, b_i, Flavor, Nicotine, smoke_3)
-#Betas: 3.5, 1.5, 1.1, 0.5
-model3 = lmer(smoke_3 ~ (1|id) + Nicotine * Flavor, data = Data3)
-summary(model3)
-```
-#The bata3 for the interaction term is always about 0.7 lower than the true beta value. 
-```{r}
-#Trying different betas
-smoke_4 <- dv(3.5, 1.5, 1.1, 1.3)
-#Create date frame
-Data4 <- data.frame(id, time, e_i, b_i, Flavor, Nicotine, smoke_4)
-#Betas: 3.5, 1.5, 1.1, 1.3
-model4 = lmer(smoke_4 ~ (1|id) + Nicotine * Flavor, data = Data4)
-summary(model4)
-```
+
+
+
+
+
+
+
+
 
 
